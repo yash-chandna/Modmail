@@ -984,7 +984,10 @@ class Thread:
 
         logs = await self.bot.api.get_user_closed_logs(self.id)
         messages = [
-            m for log in logs for m in log["messages"] if m.get("type") in ("thread_message", "anonymous")
+            m
+            for log in logs
+            for m in log["messages"]
+            if m.get("type") in ("thread_message", "anonymous", "internal", "note")
         ]
         if not messages:
             return
@@ -995,9 +998,9 @@ class Thread:
                 ts = f"<t:{int(datetime.fromisoformat(m['timestamp']).timestamp())}:d>"
             except (KeyError, ValueError):
                 ts = ""
-            role = "staff" if m["author"].get("mod") else "user"
-            if m.get("type") == "anonymous":
-                role += ", anonymous"
+            role = {"anonymous": "staff, anonymous", "internal": "internal", "note": "note"}.get(
+                m.get("type"), "staff" if m["author"].get("mod") else "user"
+            )
             content = truncate(m.get("content") or "", 300)
             for a in m.get("attachments", []):
                 content += f" [{a['filename']}]({a['url']})"

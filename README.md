@@ -87,7 +87,7 @@ This list is ever-growing thanks to active development and our exceptional contr
 ## Fork additions
 
 * **Persistent channel names:** `?config set use_persistent_channel_name yes`. The first time a user messages the bot they are given a permanent random channel name (`ticket-k3x9qa`; see `persistent_channel_name_prefix` / `persistent_channel_name_length`). Every later thread with them reuses it. Staff can replace it with `?channelname <name>` (alias `?cname`) inside a thread, and the custom name sticks too. Names are stored in the `channel_names` collection.
-* **History across closed threads:** when a returning user opens a thread, the last `thread_history_recap` (default 10, `0` to disable) messages from their earlier threads are posted in the new channel. `?history [user]` sends a `.txt` transcript of every thread with that user, including internal notes. It doesn't need the logviewer.
+* **History across closed threads:** when a returning user opens a thread, the last `thread_history_recap` (default 10, `0` to disable) messages from their earlier threads are posted in the new channel. This includes notes and plain staff messages. Every plain message sent in a thread channel is logged, whoever sends it. `?history [user]` sends a `.txt` transcript of every thread with that user, including internal notes. It doesn't need the logviewer.
 
 ## Self-hosting this fork
 

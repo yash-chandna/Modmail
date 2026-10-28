@@ -1467,18 +1467,25 @@ class ModmailBot(commands.Bot):
                 content = ""
             await self.mention_channel.send(content=content, embed=em)
 
-        # --- MODERATOR-ONLY MESSAGE LOGGING ---
-        # If a moderator sends a message directly in a thread channel (not via modmail command), log it
-        if not message.author.bot and not isinstance(message.channel, discord.DMChannel):
+        # --- INTERNAL MESSAGE LOGGING ---
+        # Log every plain (non-command) message sent in a thread channel, whoever sends it.
+        # Skipped when plain messages are relayed as replies, since thread.reply logs those.
+        replies_without_command = (
+            self.config.get("reply_without_command")
+            or self.config.get("anon_reply_without_command")
+            or self.config.get("plain_reply_without_command")
+        )
+        if (
+            not message.author.bot
+            and not isinstance(message.channel, discord.DMChannel)
+            and not replies_without_command
+        ):
             thread = await self.threads.find(channel=message.channel)
             if thread is not None:
                 ctxs = await self.get_contexts(message)
                 is_command = any(ctx.command for ctx in ctxs)
                 if not is_command:
-                    # Only log if not a command
-                    perms = message.channel.permissions_for(message.author)
-                    if perms.manage_messages or perms.administrator:
-                        await self.api.append_log(message, type_="internal")
+                    await self.api.append_log(message, type_="internal")
 
         await self.process_commands(message)
 
