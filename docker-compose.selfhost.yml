@@ -1,0 +1,37 @@
+# Self-hosted stack for this fork. Unlike docker-compose.yml, this builds the bot
+# from the local source so the fork's changes are included.
+# Managed by setup.sh; see the "Self-hosting this fork" section in README.md.
+services:
+  bot:
+    build: .
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - CONNECTION_URI=mongodb://mongo
+    depends_on:
+      - mongo
+
+  # Optional web viewer for closed-thread logs. Only started with `--profile logviewer`.
+  # Bound to localhost because logs contain private DMs; put a reverse proxy with
+  # authentication in front of it, or reach it over an SSH tunnel.
+  logviewer:
+    image: ghcr.io/modmail-dev/logviewer:master
+    restart: always
+    profiles: ["logviewer"]
+    depends_on:
+      - mongo
+    environment:
+      - MONGO_URI=mongodb://mongo
+    ports:
+      - 127.0.0.1:8000:8000
+
+  # Not published to the host; only reachable by the containers above.
+  mongo:
+    image: mongo:7
+    restart: always
+    volumes:
+      - mongodb:/data/db
+
+volumes:
+  mongodb:

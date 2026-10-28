@@ -9,7 +9,7 @@ from discord.ext import commands
 
 from aiohttp import ClientResponseError, ClientResponse
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo.errors import ConfigurationError
+from pymongo.errors import ConfigurationError, DuplicateKeyError
 
 from core.models import InvalidConfigError, getLogger
 
@@ -434,6 +434,21 @@ class ApiClient:
     async def get_user_info(self) -> Optional[dict]:
         return NotImplemented
 
+    async def get_user_closed_logs(self, user_id: Union[str, int]) -> list:
+        return NotImplemented
+
+    async def get_channel_name(self, user_id: Union[str, int]) -> Optional[str]:
+        return NotImplemented
+
+    async def get_channel_name_owner(self, name: str) -> Optional[str]:
+        return NotImplemented
+
+    async def create_channel_name(self, user_id: Union[str, int], name: str) -> bool:
+        return NotImplemented
+
+    async def set_channel_name(self, user_id: Union[str, int], name: str) -> bool:
+        return NotImplemented
+
 
 class MongoDBClient(ApiClient):
     def __init__(self, bot):
@@ -484,6 +499,9 @@ class MongoDBClient(ApiClient):
                     ("key", "text"),
                 ]
             )
+        # One persistent channel name per user, and no two users share a name.
+        await self.db.channel_names.create_index([("guild_id", 1), ("user_id", 1)], unique=True)
+        await self.db.channel_names.create_index([("guild_id", 1), ("name", 1)], unique=True)
         logger.debug("Successfully configured and verified database indexes.")
 
     async def validate_database_connection(self, *, ssl_retry=True):
@@ -537,6 +555,48 @@ class MongoDBClient(ApiClient):
         logger.debug("Retrieving user %s logs.", user_id)
 
         return await self.logs.find(query, projection).to_list(None)
+
+    async def get_user_closed_logs(self, user_id: Union[str, int]) -> list:
+        """Closed logs for a user with every message included, oldest first."""
+        query = {"recipient.id": str(user_id), "guild_id": str(self.bot.guild_id), "open": False}
+        return await self.logs.find(query, sort=[("created_at", 1)]).to_list(None)
+
+    async def get_channel_name(self, user_id: Union[str, int]) -> Optional[str]:
+        doc = await self.db.channel_names.find_one(
+            {"guild_id": str(self.bot.guild_id), "user_id": str(user_id)}
+        )
+        return doc["name"] if doc else None
+
+    async def get_channel_name_owner(self, name: str) -> Optional[str]:
+        doc = await self.db.channel_names.find_one({"guild_id": str(self.bot.guild_id), "name": name})
+        return doc["user_id"] if doc else None
+
+    async def create_channel_name(self, user_id: Union[str, int], name: str) -> bool:
+        """Returns False if the user already has a name or the name is taken."""
+        try:
+            await self.db.channel_names.insert_one(
+                {
+                    "guild_id": str(self.bot.guild_id),
+                    "user_id": str(user_id),
+                    "name": name,
+                    "created_at": str(discord.utils.utcnow()),
+                }
+            )
+        except DuplicateKeyError:
+            return False
+        return True
+
+    async def set_channel_name(self, user_id: Union[str, int], name: str) -> bool:
+        """Returns False if another user already has this name."""
+        try:
+            await self.db.channel_names.update_one(
+                {"guild_id": str(self.bot.guild_id), "user_id": str(user_id)},
+                {"$set": {"name": name}},
+                upsert=True,
+            )
+        except DuplicateKeyError:
+            return False
+        return True
 
     async def find_log_entry(self, key: str) -> list:
         query = {"key": key}

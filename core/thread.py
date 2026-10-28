@@ -803,8 +803,18 @@ class Thread:
         # If thread menu is enabled and this setup call is marked as deferred genesis (initial_message carries flag),
         # then we may have already created the channel earlier. Only create if channel missing.
         if self._channel is None:
+            name = None
+            if self.bot.config["use_persistent_channel_name"]:
+                # Only a user messaging us first earns them a permanent name;
+                # threads opened by staff via contact get a one-off name instead.
+                user_initiated = creator is None or creator == recipient
+                try:
+                    name = await self.bot.get_persistent_channel_name(recipient, assign=user_initiated)
+                except Exception:
+                    logger.error("Failed to look up persistent channel name.", exc_info=True)
+                name = name or self.bot.generate_channel_name()
             try:
-                channel = await create_thread_channel(self.bot, recipient, category, overwrites)
+                channel = await create_thread_channel(self.bot, recipient, category, overwrites, name=name)
             except discord.HTTPException as e:  # Failed to create due to missing perms.
                 logger.critical("An error occurred while creating a thread.", exc_info=True)
                 self.manager.cache.pop(self.id)
@@ -957,7 +967,58 @@ class Thread:
             activate_auto_triggers(),
             send_persistent_notes(),
         )
+        try:
+            await self.send_history_recap()
+        except Exception:
+            logger.error("Failed to send thread history recap.", exc_info=True)
         self.bot.dispatch("thread_ready", self, creator, category, initial_message)
+
+    async def send_history_recap(self):
+        """Post the last few messages from the recipient's previous threads."""
+        try:
+            limit = int(self.bot.config["thread_history_recap"])
+        except (TypeError, ValueError):
+            limit = 0
+        if limit <= 0:
+            return
+
+        logs = await self.bot.api.get_user_closed_logs(self.id)
+        messages = [
+            m for log in logs for m in log["messages"] if m.get("type") in ("thread_message", "anonymous")
+        ]
+        if not messages:
+            return
+
+        lines = []
+        for m in messages[-limit:]:
+            try:
+                ts = f"<t:{int(datetime.fromisoformat(m['timestamp']).timestamp())}:d>"
+            except (KeyError, ValueError):
+                ts = ""
+            role = "staff" if m["author"].get("mod") else "user"
+            if m.get("type") == "anonymous":
+                role += ", anonymous"
+            content = truncate(m.get("content") or "", 300)
+            for a in m.get("attachments", []):
+                content += f" [{a['filename']}]({a['url']})"
+            lines.append(f"{ts} **{discord.utils.escape_markdown(m['author']['name'])}** ({role}): {content}")
+
+        # Keep the newest lines that fit in one embed.
+        description = ""
+        for line in reversed(lines):
+            if len(description) + len(line) + 1 > 4000:
+                break
+            description = f"{line}\n{description}"
+
+        embed = discord.Embed(
+            title="Previous conversation",
+            description=description,
+            color=self.bot.main_color,
+        )
+        embed.set_footer(
+            text=f"{len(logs)} previous thread(s) · {self.bot.prefix}history for the full transcript"
+        )
+        await self.channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
     def _format_info_embed(self, user, log_url, log_count, color):
         """Get information about a member of a server

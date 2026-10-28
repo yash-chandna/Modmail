@@ -6,6 +6,7 @@ import copy
 import hashlib
 import os
 import re
+import secrets
 import string
 import struct
 import sys
@@ -48,6 +49,7 @@ from core.models import (
 from core.thread import ThreadManager
 from core.time import human_timedelta
 from core.utils import (
+    sanitize_channel_name,
     extract_block_timestamp,
     normalize_alias,
     parse_alias,
@@ -2213,6 +2215,33 @@ class ModmailBot(commands.Bot):
             counter += 1
 
         return new_name
+
+    def generate_channel_name(self):
+        """A fresh random channel name such as `ticket-k3x9qa`."""
+        prefix = sanitize_channel_name(self.config["persistent_channel_name_prefix"] or "")
+        try:
+            length = max(1, int(self.config["persistent_channel_name_length"]))
+        except (TypeError, ValueError):
+            length = 6
+        rand = "".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(length))
+        return f"{prefix}-{rand}" if prefix else rand
+
+    async def get_persistent_channel_name(self, user, *, assign=True):
+        """Returns the user's permanent channel name.
+
+        If the user has none yet, one is generated and saved when `assign` is True,
+        otherwise None is returned."""
+        name = await self.api.get_channel_name(user.id)
+        if name is not None or not assign:
+            return name
+        while True:
+            name = self.generate_channel_name()
+            if await self.api.create_channel_name(user.id, name):
+                return name
+            # Either the random name was taken, or the user got a name concurrently.
+            existing = await self.api.get_channel_name(user.id)
+            if existing is not None:
+                return existing
 
 
 def main():

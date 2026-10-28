@@ -149,6 +149,53 @@
       "See also: `use_timestamp_channel_name`, `use_user_id_channel_name`, `use_nickname_channel_name`."
     ]
   },
+  "use_persistent_channel_name": {
+    "default": "No",
+    "description": "When this is set to `yes`, each user is given one permanent channel name (e.g. `ticket-k3x9qa`) the first time they message the bot, and every future thread with them reuses it.",
+    "examples": [
+      "`{prefix}config set use_persistent_channel_name yes`",
+      "`{prefix}config set use_persistent_channel_name no`"
+    ],
+    "notes": [
+      "A name is only assigned when the user messages first. Threads opened with `{prefix}contact` for a user without a name get a one-off random name.",
+      "Use `{prefix}channelname <name>` inside a thread to replace the random name with a custom one.",
+      "This takes priority over `use_random_channel_name`, `use_user_id_channel_name`, `use_timestamp_channel_name` and `use_nickname_channel_name`.",
+      "See also: `persistent_channel_name_prefix`, `persistent_channel_name_length`."
+    ]
+  },
+  "persistent_channel_name_prefix": {
+    "default": "`ticket`",
+    "description": "The text placed in front of the random part of new persistent channel names.",
+    "examples": [
+      "`{prefix}config set persistent_channel_name_prefix support`"
+    ],
+    "notes": [
+      "Only affects names assigned after the change; existing names are kept.",
+      "See also: `use_persistent_channel_name`, `persistent_channel_name_length`."
+    ]
+  },
+  "persistent_channel_name_length": {
+    "default": "6",
+    "description": "How many random characters (a-z, 0-9) are in new persistent channel names.",
+    "examples": [
+      "`{prefix}config set persistent_channel_name_length 8`"
+    ],
+    "notes": [
+      "See also: `use_persistent_channel_name`, `persistent_channel_name_prefix`."
+    ]
+  },
+  "thread_history_recap": {
+    "default": "10",
+    "description": "When a user with previous closed threads opens a new one, the last this-many messages from those threads are posted in the new channel.",
+    "examples": [
+      "`{prefix}config set thread_history_recap 25`",
+      "`{prefix}config set thread_history_recap 0`"
+    ],
+    "notes": [
+      "Set to `0` to disable the recap.",
+      "Use `{prefix}history` for a full transcript of every past thread."
+    ]
+  },
   "mod_typing": {
     "default": "Disabled",
     "description": "When this is set to `yes`, whenever a moderator starts to type in the thread channel, the recipient user will see \"{bot.user.display_name} is typing…\" in their DM channel.",

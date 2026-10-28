@@ -29,6 +29,7 @@ __all__ = [
     "match_user_id",
     "match_other_recipients",
     "create_thread_channel",
+    "sanitize_channel_name",
     "create_not_found_embed",
     "parse_alias",
     "normalize_alias",
@@ -486,6 +487,13 @@ def get_top_role(member: discord.Member, hoisted=True):
             return role
 
 
+def sanitize_channel_name(name: str) -> str:
+    """Normalises text the way Discord does for text channel names."""
+    name = re.sub(r"\s+", "-", name.strip().lower())
+    name = re.sub(r"[^a-z0-9_-]", "", name)
+    return re.sub(r"-{2,}", "-", name).strip("-")[:100]
+
+
 async def create_thread_channel(bot, recipient, category, overwrites, *, name=None, errors_raised=None):
     name = name or bot.format_channel_name(recipient)
     errors_raised = errors_raised or []
@@ -519,7 +527,7 @@ async def create_thread_channel(bot, recipient, category, overwrites, *, name=No
                 await bot.config.update()
 
             return await create_thread_channel(
-                bot, recipient, fallback, overwrites, errors_raised=errors_raised
+                bot, recipient, fallback, overwrites, name=name, errors_raised=errors_raised
             )
 
         if "Contains words not allowed" in e.text:

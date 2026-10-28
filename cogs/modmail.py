@@ -1,4 +1,5 @@
 import asyncio
+import io
 import re
 from datetime import datetime, timezone, timedelta
 from itertools import zip_longest
@@ -1282,6 +1283,119 @@ class Modmail(commands.Cog):
 
         sent_emoji, _ = await self.bot.retrieve_emoji()
         await self.bot.add_reaction(ctx.message, sent_emoji)
+
+    @commands.command(aliases=["cname"])
+    @checks.has_permissions(PermissionLevel.SUPPORTER)
+    @checks.thread_only()
+    async def channelname(self, ctx, *, name: str = None):
+        """
+        View or change the recipient's persistent channel name.
+
+        The name belongs to the user, so every future thread with them uses it too.
+        Leave `name` blank to show the current name.
+        """
+        thread = ctx.thread
+
+        if name is None:
+            current = await self.bot.api.get_channel_name(thread.id)
+            description = (
+                f"This user's channel name is `{current}`."
+                if current
+                else "This user has no persistent channel name yet."
+            )
+            return await ctx.send(embed=discord.Embed(color=self.bot.main_color, description=description))
+
+        new_name = sanitize_channel_name(name)
+        if not new_name:
+            return await ctx.send(
+                embed=discord.Embed(
+                    color=self.bot.error_color,
+                    description="Channel names may only contain letters, numbers, `-` and `_`.",
+                )
+            )
+
+        owner = await self.bot.api.get_channel_name_owner(new_name)
+        if (owner is not None and owner != str(thread.id)) or not await self.bot.api.set_channel_name(
+            thread.id, new_name
+        ):
+            return await ctx.send(
+                embed=discord.Embed(
+                    color=self.bot.error_color,
+                    description=f"`{new_name}` already belongs to another user.",
+                )
+            )
+
+        # Discord only allows two renames per channel every 10 minutes, and discord.py
+        # waits out the rate limit, so don't hold up the reply on it.
+        rename = asyncio.create_task(ctx.channel.edit(name=new_name, reason="Persistent channel name changed."))
+        done, _ = await asyncio.wait({rename}, timeout=5)
+        description = f"Channel name set to `{new_name}`."
+        if not done:
+            description += "\nDiscord is rate limiting renames, so this channel will update shortly."
+        elif rename.exception() is not None:
+            description += f"\nThe name was saved, but renaming this channel failed: {rename.exception()}"
+        await ctx.send(embed=discord.Embed(color=self.bot.main_color, description=description))
+
+    @commands.command()
+    @checks.has_permissions(PermissionLevel.SUPPORTER)
+    async def history(self, ctx, *, user: User = None):
+        """
+        Get a full transcript of every Modmail thread with a user.
+
+        Leave `user` blank when this command is used within a
+        thread channel to use the current recipient.
+        `user` may be a user ID, mention, or name.
+        """
+        if not user:
+            thread = ctx.thread
+            if not thread:
+                raise commands.MissingRequiredArgument(DummyParam("user"))
+            user = thread.recipient or await self.bot.get_or_fetch_user(thread.id)
+
+        async with safe_typing(ctx):
+            logs = await self.bot.api.get_user_closed_logs(user.id)
+            if ctx.thread and ctx.thread.id == user.id:
+                current = await self.bot.api.get_log(ctx.channel.id)
+                if current:
+                    logs.append(current)
+
+        if not any(log["messages"] for log in logs):
+            return await ctx.send(
+                embed=discord.Embed(
+                    color=self.bot.error_color,
+                    description="This user does not have any message history.",
+                )
+            )
+
+        labels = {"note": "note", "internal": "internal", "system": "system"}
+        out = []
+        for i, log in enumerate(logs, start=1):
+            header = f"=== Thread {i} · log {log['key']} · opened {log['created_at'][:16]}"
+            if log.get("closed_at"):
+                header += f" · closed {log['closed_at'][:16]}"
+                if log.get("closer"):
+                    header += f" by {log['closer']['name']}"
+            else:
+                header += " · open"
+            out.append(header + " ===")
+            for m in log["messages"]:
+                kind = m.get("type")
+                label = labels.get(kind) or ("staff" if m["author"].get("mod") else "user")
+                if kind == "anonymous":
+                    label = "staff, anonymous"
+                out.append(f"[{m['timestamp'][:19]}] {m['author']['name']} ({label}): {m.get('content') or ''}")
+                for a in m.get("attachments", []):
+                    out.append(f"    attachment: {a['filename']} {a['url']}")
+            out.append("")
+
+        file = discord.File(io.BytesIO("\n".join(out).encode()), filename=f"history-{user.id}.txt")
+        await ctx.send(
+            embed=discord.Embed(
+                color=self.bot.main_color,
+                description=f"Full history for {user.mention} across {len(logs)} thread(s).",
+            ),
+            file=file,
+        )
 
     @commands.group(invoke_without_command=True)
     @checks.has_permissions(PermissionLevel.SUPPORTER)

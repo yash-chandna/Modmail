@@ -84,6 +84,21 @@ Our Logviewer will save the threads so you can view previous threads through the
 
 This list is ever-growing thanks to active development and our exceptional contributors. See a full list of documented commands by using the `?help` command.
 
+## Fork additions
+
+* **Persistent channel names:** `?config set use_persistent_channel_name yes`. The first time a user messages the bot they are given a permanent random channel name (`ticket-k3x9qa`; see `persistent_channel_name_prefix` / `persistent_channel_name_length`). Every later thread with them reuses it. Staff can replace it with `?channelname <name>` (alias `?cname`) inside a thread, and the custom name sticks too. Names are stored in the `channel_names` collection.
+* **History across closed threads:** when a returning user opens a thread, the last `thread_history_recap` (default 10, `0` to disable) messages from their earlier threads are posted in the new channel. `?history [user]` sends a `.txt` transcript of every thread with that user, including internal notes. It doesn't need the logviewer.
+
+## Self-hosting this fork
+
+1. **Discord bot:** at https://discord.com/developers/applications create an application, open **Bot** and copy the token, and turn on all three **Privileged Gateway Intents** (Presence, Server Members, Message Content). Under **OAuth2 → URL Generator** tick `bot` with `Administrator`, then open the URL to invite the bot to your server.
+2. **IDs:** enable Developer Mode in Discord (Settings → Advanced), then right-click your server and yourself and choose **Copy ID**.
+3. **Server:** use any Ubuntu/Debian VPS with 1 GB of RAM or more. It needs no open inbound ports except SSH.
+4. **Install:** `git clone <your fork> && cd modmail && sudo ./setup.sh install`. The script installs Docker, asks for the token and IDs, writes `/opt/modmail/.env`, and starts the bot and MongoDB.
+5. **In Discord:** run `?setup` in your server, then DM the bot to test it.
+
+Day to day, use `sudo ./setup.sh update | logs | backup | restart | stop`.
+
 ## Installation
 
 There are a number of options for hosting your very own dedicated Modmail bot.
