@@ -560,6 +560,9 @@ class ModmailBot(commands.Bot):
             logger.info("Receiving guild ID: %s", self.modmail_guild.id)
         logger.line()
 
+        for guild in self.guilds:
+            await self.leave_if_unauthorized(guild)
+
         if "dev" in __version__:
             logger.warning(
                 "You are running a developmental version. This should not be used in production. (v%s)",
@@ -1442,6 +1445,24 @@ class ModmailBot(commands.Bot):
             self.config["command_permissions"] = permissions
         logger.info("Updating permissions for %s, %s (add=%s).", name, value, add)
         await self.config.update()
+
+    async def leave_if_unauthorized(self, guild: discord.Guild) -> None:
+        """Leave any server other than GUILD_ID / MODMAIL_GUILD_ID.
+
+        Members of every server the bot is in can open threads, so staying in a
+        stranger's server would let its members DM in."""
+        allowed = {self.guild_id, getattr(self.modmail_guild, "id", None)}
+        if guild.id in allowed:
+            return
+        logger.warning("Leaving unauthorized guild %s (%s).", guild.name, guild.id)
+        try:
+            await guild.leave()
+        except discord.HTTPException:
+            logger.error("Failed to leave guild %s.", guild.id, exc_info=True)
+
+    async def on_guild_join(self, guild):
+        await self.wait_for_connected()
+        await self.leave_if_unauthorized(guild)
 
     async def on_message(self, message):
         await self.wait_for_connected()
