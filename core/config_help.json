@@ -151,7 +151,7 @@
   },
   "use_persistent_channel_name": {
     "default": "No",
-    "description": "When this is set to `yes`, each user is given one permanent channel name (e.g. `ticket-k3x9qa`) the first time they message the bot, and every future thread with them reuses it.",
+    "description": "When this is set to `yes`, each user is given one permanent channel name (e.g. `k3x9qa`) the first time they message the bot, and every future thread with them reuses it.",
     "examples": [
       "`{prefix}config set use_persistent_channel_name yes`",
       "`{prefix}config set use_persistent_channel_name no`"
@@ -164,7 +164,7 @@
     ]
   },
   "persistent_channel_name_prefix": {
-    "default": "`ticket`",
+    "default": "None",
     "description": "The text placed in front of the random part of new persistent channel names.",
     "examples": [
       "`{prefix}config set persistent_channel_name_prefix support`"
@@ -572,7 +572,7 @@
     ]
   },
   "thread_close_response": {
-    "default": "\"{{closer.mention}} has closed this Modmail thread\"",
+    "default": "\"Moderators have closed this Modmail thread.\"",
     "description": "This is the message embed content sent to the recipient upon the closure of a thread.",
     "examples": [
       "`{prefix}config set thread_close_response Your message is appreciated!`"
@@ -586,7 +586,7 @@
     ]
   },
   "thread_self_close_response": {
-    "default": "\"You have closed this Modmail thread.\"",
+    "default": "\"Moderators have closed this Modmail thread.\"",
     "description": "This is the message embed content sent to the recipient upon the closure of a their own thread.",
     "examples": [
       "`{prefix}config set thread_self_close_response You have closed your own thread...`"

@@ -452,7 +452,7 @@ class ModmailBot(commands.Bot):
                     pass
                 self.config.remove("main_category_id")
                 logger.debug("MAIN_CATEGORY_ID was invalid, removed.")
-            cat = discord.utils.get(self.modmail_guild.categories, name="Modmail")
+            cat = discord.utils.find(lambda c: c.name.lower() == "modmail", self.modmail_guild.categories)
             if cat is not None:
                 self.config["main_category_id"] = cat.id
                 logger.debug(
@@ -2245,7 +2245,7 @@ class ModmailBot(commands.Bot):
         return new_name
 
     def generate_channel_name(self):
-        """A fresh random channel name such as `ticket-k3x9qa`."""
+        """A fresh random channel name such as `k3x9qa`."""
         prefix = sanitize_channel_name(self.config["persistent_channel_name_prefix"] or "")
         try:
             length = max(1, int(self.config["persistent_channel_name_length"]))

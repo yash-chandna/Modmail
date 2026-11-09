@@ -502,6 +502,14 @@ class MongoDBClient(ApiClient):
         # One persistent channel name per user, and no two users share a name.
         await self.db.channel_names.create_index([("guild_id", 1), ("user_id", 1)], unique=True)
         await self.db.channel_names.create_index([("guild_id", 1), ("name", 1)], unique=True)
+        # Names used to be saved as "ticket-xxxxxx"; drop that prefix.
+        async for doc in self.db.channel_names.find({"name": {"$regex": "^ticket-."}}):
+            try:
+                await self.db.channel_names.update_one(
+                    {"_id": doc["_id"]}, {"$set": {"name": doc["name"][len("ticket-") :]}}
+                )
+            except DuplicateKeyError:
+                logger.warning("Could not rename channel name %s, the shorter name is taken.", doc["name"])
         logger.debug("Successfully configured and verified database indexes.")
 
     async def validate_database_connection(self, *, ssl_retry=True):
