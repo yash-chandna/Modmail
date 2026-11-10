@@ -14,7 +14,7 @@ from discord.ext.commands import BadArgument
 from core._color_data import ALL_COLORS
 from core.models import DMDisabled, InvalidConfigError, Default, getLogger
 from core.time import UserFriendlyTime
-from core.utils import strtobool
+from core.utils import audit_actor, audit_user, audit_value, strtobool
 
 logger = getLogger(__name__)
 load_dotenv()
@@ -343,7 +343,40 @@ class ConfigManager:
 
     async def update(self):
         """Updates the config with data from the cache"""
-        await self.bot.api.update_config(self.filter_default(self._cache))
+        new = self.filter_default(self._cache)
+        try:
+            stored = await self.bot.api.get_config()
+        except Exception:
+            logger.error("Failed to read config for audit diff.", exc_info=True)
+            stored = None
+        await self.bot.api.update_config(new)
+        if stored is not None:
+            await self._audit_changes(stored, new)
+
+    async def _audit_changes(self, old: dict, new: dict) -> None:
+        # Compare only what is actually stored; protected keys (token etc.) never reach the database.
+        old, new = self.filter_valid(old), self.filter_valid(new)
+        actor = audit_user(audit_actor.get())
+        for key in sorted(set(old) | set(new)):
+            before, after = old.get(key), new.get(key)
+            if audit_value(before) == audit_value(after):
+                continue
+            entry = {"key": key, "changed_by": actor}
+            if isinstance(before, dict) and isinstance(after, dict):
+                # Large maps (blocked users, permissions...) only record what changed.
+                entry["added"] = audit_value({k: after[k] for k in after.keys() - before.keys()})
+                entry["removed"] = audit_value({k: before[k] for k in before.keys() - after.keys()})
+                entry["changed"] = audit_value(
+                    {
+                        k: {"old": before[k], "new": after[k]}
+                        for k in before.keys() & after.keys()
+                        if audit_value(before[k]) != audit_value(after[k])
+                    }
+                )
+            else:
+                entry["old"] = audit_value(before)
+                entry["new"] = audit_value(after)
+            await self.bot.api.audit("config_change", **entry)
 
     async def refresh(self) -> dict:
         """Refreshes internal cache with data from database"""

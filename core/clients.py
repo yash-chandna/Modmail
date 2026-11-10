@@ -391,6 +391,12 @@ class ApiClient:
     async def edit_message(self, message_id: Union[int, str], new_content: str):
         return NotImplemented
 
+    async def mark_message_deleted(self, message_id: Union[int, str]):
+        return NotImplemented
+
+    async def audit(self, event: str, **data):
+        return NotImplemented
+
     async def append_log(
         self,
         message: Message,
@@ -499,6 +505,10 @@ class MongoDBClient(ApiClient):
                     ("key", "text"),
                 ]
             )
+        # Edits and deletes look messages up by id.
+        await coll.create_index("messages.message_id")
+        await self.db.audit.create_index([("timestamp", -1)])
+        await self.db.audit.create_index([("event", 1), ("timestamp", -1)])
         # One persistent channel name per user, and no two users share a name.
         await self.db.channel_names.create_index([("guild_id", 1), ("user_id", 1)], unique=True)
         await self.db.channel_names.create_index([("guild_id", 1), ("name", 1)], unique=True)
@@ -716,10 +726,38 @@ class MongoDBClient(ApiClient):
             return await self.db.config.update_one({"bot_id": self.bot.user.id}, {"$unset": unset})
 
     async def edit_message(self, message_id: Union[int, str], new_content: str) -> None:
+        # Keep every prior version in `edits` instead of overwriting it.
+        message_id = str(message_id)
+        doc = await self.logs.find_one(
+            {"messages.message_id": message_id}, {"messages": {"$elemMatch": {"message_id": message_id}}}
+        )
+        if not doc:
+            return
+        previous = doc["messages"][0].get("content")
+        if previous == new_content:
+            return
+        await self.logs.update_one(
+            {"messages.message_id": message_id},
+            {
+                "$set": {"messages.$.content": new_content, "messages.$.edited": True},
+                "$push": {
+                    "messages.$.edits": {"content": previous, "edited_at": str(discord.utils.utcnow())}
+                },
+            },
+        )
+
+    async def mark_message_deleted(self, message_id: Union[int, str]) -> None:
         await self.logs.update_one(
             {"messages.message_id": str(message_id)},
-            {"$set": {"messages.$.content": new_content, "messages.$.edited": True}},
+            {"$set": {"messages.$.deleted": True, "messages.$.deleted_at": str(discord.utils.utcnow())}},
         )
+
+    async def audit(self, event: str, **data) -> None:
+        """Append an entry to the audit collection. Never raises."""
+        try:
+            await self.db.audit.insert_one({"event": event, "timestamp": str(discord.utils.utcnow()), **data})
+        except Exception:
+            logger.error("Failed to write audit entry %s.", event, exc_info=True)
 
     async def append_log(
         self,

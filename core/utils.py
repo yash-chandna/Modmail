@@ -1,4 +1,5 @@
 import base64
+import contextvars
 import functools
 import contextlib
 import re
@@ -14,7 +15,32 @@ from discord.ext import commands
 from core.models import getLogger
 
 
+# The user whose command is running in the current task, so lower layers (e.g. config writes) can
+# attribute audit entries without having the command context passed down to them.
+audit_actor: contextvars.ContextVar = contextvars.ContextVar("audit_actor", default=None)
+
+
+def audit_user(user) -> typing.Optional[dict]:
+    if user is None:
+        return None
+    return {"id": str(user.id), "name": str(user)}
+
+
+def audit_value(value):
+    """Make a value safe to store in Mongo, stringifying anything that isn't plain data."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): audit_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [audit_value(v) for v in value]
+    return str(value)
+
+
 __all__ = [
+    "audit_actor",
+    "audit_user",
+    "audit_value",
     "strtobool",
     "User",
     "truncate",

@@ -49,6 +49,8 @@ from core.models import (
 from core.thread import ThreadManager
 from core.time import human_timedelta
 from core.utils import (
+    audit_actor,
+    audit_user,
     sanitize_channel_name,
     extract_block_timestamp,
     normalize_alias,
@@ -105,6 +107,7 @@ class ModmailBot(commands.Bot):
         configure_logging(self)
 
         self.plugin_db = PluginDatabaseClient(self)  # Deprecated
+        self.before_invoke(self._set_audit_actor)
         self.startup()
 
     def get_guild_icon(
@@ -802,6 +805,7 @@ class ModmailBot(commands.Bot):
     async def _process_blocked(self, message):
         _, blocked_emoji = await self.retrieve_emoji()
         if await self.is_blocked(message.author, channel=message.channel, send_message=True):
+            await self.api.audit("dm_blocked", author=audit_user(message.author), message_id=str(message.id))
             await self.add_reaction(message, blocked_emoji)
             return True
         return False
@@ -1455,6 +1459,7 @@ class ModmailBot(commands.Bot):
         if guild.id in allowed:
             return
         logger.warning("Leaving unauthorized guild %s (%s).", guild.name, guild.id)
+        await self.api.audit("guild_left", guild_id=str(guild.id), guild_name=guild.name)
         try:
             await guild.leave()
         except discord.HTTPException:
@@ -1515,6 +1520,16 @@ class ModmailBot(commands.Bot):
             return
 
         if isinstance(message.channel, discord.DMChannel):
+            # Record every inbound DM, including ones later rejected (blocked, cooldown, disabled).
+            self.loop.create_task(
+                self.api.audit(
+                    "dm_received",
+                    author=audit_user(message.author),
+                    message_id=str(message.id),
+                    content=message.content,
+                    attachments=[a.url for a in message.attachments],
+                )
+            )
             return await self._queue_dm_message(message)
 
         ctxs = await self.get_contexts(message)
@@ -1929,6 +1944,34 @@ class ModmailBot(commands.Bot):
     async def on_bulk_message_delete(self, messages):
         await discord.utils.async_all(self.on_message_delete(msg) for msg in messages)
 
+    async def on_raw_message_delete(self, payload):
+        await self._mark_deleted(payload.guild_id, payload.channel_id, [payload.message_id])
+
+    async def on_raw_bulk_message_delete(self, payload):
+        await self._mark_deleted(payload.guild_id, payload.channel_id, payload.message_ids)
+
+    async def _mark_deleted(self, guild_id, channel_id, message_ids):
+        """Flag deleted DM and thread-channel messages in the ticket log instead of losing them.
+
+        Raw events fire even for messages that are no longer cached."""
+        if guild_id is not None:
+            channel = self.get_channel(channel_id)
+            if not isinstance(channel, discord.TextChannel) or await self.threads.find(channel=channel) is None:
+                return
+        for message_id in message_ids:
+            await self.api.mark_message_deleted(message_id)
+
+    async def on_raw_message_edit(self, payload):
+        """Record edits to plain thread-channel messages. DM edits go through on_message_edit."""
+        if payload.guild_id is None or "content" not in payload.data:
+            return
+        if payload.data.get("author", {}).get("bot"):
+            return
+        channel = self.get_channel(payload.channel_id)
+        if not isinstance(channel, discord.TextChannel) or await self.threads.find(channel=channel) is None:
+            return
+        await self.api.edit_message(payload.message_id, payload.data["content"])
+
     async def on_message_edit(self, before, after):
         if after.author.bot:
             return
@@ -1950,6 +1993,25 @@ class ModmailBot(commands.Bot):
                 embed.set_footer(text=f"Message ID: {after.id}")
                 await after.channel.send(embed=embed)
 
+    async def _set_audit_actor(self, ctx: commands.Context) -> None:
+        audit_actor.set(ctx.author)
+
+    async def _audit_command(self, ctx: commands.Context, error: Exception = None) -> None:
+        await self.api.audit(
+            "command",
+            command=ctx.command.qualified_name if ctx.command else None,
+            content=ctx.message.content,
+            author=audit_user(ctx.author),
+            channel_id=str(ctx.channel.id),
+            channel_name=getattr(ctx.channel, "name", None),
+            guild_id=str(ctx.guild.id) if ctx.guild else None,
+            success=error is None,
+            error=f"{type(error).__name__}: {error}" if error else None,
+        )
+
+    async def on_command_completion(self, ctx):
+        await self._audit_command(ctx)
+
     async def on_error(self, event_method, *args, **kwargs):
         logger.error("Ignoring exception in %s.", event_method)
         logger.error("Unexpected exception:", exc_info=sys.exc_info())
@@ -1962,6 +2024,7 @@ class ModmailBot(commands.Bot):
         unhandled_by_cog: bool = False,
     ) -> None:
         if not unhandled_by_cog:
+            await self._audit_command(context, exception)
             command = context.command
             if command and command.has_error_handler():
                 return
